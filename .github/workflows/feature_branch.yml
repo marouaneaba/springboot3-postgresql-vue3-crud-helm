@@ -1,0 +1,750 @@
+name: Feature
+on:
+  pull_request:
+    types: [ synchronize, opened, reopened, ready_for_review ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: [self-hosted, decathlon]
+    permissions:
+      id-token: write
+      contents: read
+      checks: write
+
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: clean
+        uses: docker://centos
+        if: ${{ always() }}
+        continue-on-error: true
+        with:
+          args: "/bin/rm /github/workspace -rf"
+
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          settings-path: ${{ github.workspace }}
+          distribution: 'temurin'
+
+      - name: auth gcloud
+        id: auth
+        uses: dktunited/.github/actions/gcloud_workload_identity@main
+        with:
+          workload_identity_provider: 'projects/889695046388/locations/global/workloadIdentityPools/ci-tools/providers/github'
+          service_account: 'member-maven@member-worldwide-utes.iam.gserviceaccount.com'
+
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v3
+        with:
+          repository: dktunited/member-actions
+          ref: v1
+          token: ${{ secrets.DKTUNITED_TOKEN }}
+          path: .github/member-actions
+
+      - name: Setup variables
+        uses: ./.github/member-actions/github-action-member-setup-env
+        with:
+          prisma_password: ${{ secrets.PRISMA_PASS }}
+          prisma_user: ${{ secrets.PRISMA_USER }}
+
+      - name: Build with Maven
+        run: mvn -q clean verify
+
+      - name: checkmarx
+        uses: dktunited/security/checkmarx@main
+        with:
+          cx-ast-secret: ${{ secrets.CX_AST_SECRET }}
+
+      - name: Publish Test Report
+        if: always()
+        uses: mikepenz/action-junit-report@v3
+        with:
+          fail_on_failure: "true"
+          report_paths: '**/surefire-reports/TEST-*.xml'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Sonar report
+        if: always()
+        run: |
+          mvn -q sonar:sonar -Dsonar.projectKey=dktunited_${{ env.ghrepo }} \
+          -Dsonar.organization=dktunited \
+          -Dsonar.host.url=https://sonarcloud.io \
+          -Dsonar.login=${{secrets.SONAR_TOKEN}} \
+          -Dsonar.password=  \
+          -Dsonar.pullrequest.branch=${{ github.event.pull_request.head.ref }} \
+          -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} \
+          -Dsonar.scm.revision=${{ github.event.pull_request.head.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Container Registry Europe
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}
+          username: ${{ secrets.MEMBER_DOCKER_REGISTRY_USERNAME }}
+          password: ${{ secrets.MEMBER_DOCKER_REGISTRY_PASSWORD }}
+
+      - name: Build flyway
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./flyway/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/flyway:EPHEMERAL-${{ github.event.pull_request.number }}
+
+      - name: Build connection-api
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./connection-api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/connection-api:EPHEMERAL-${{ github.event.pull_request.number }}
+
+      - name: Build synchro Suunto
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./synchro-suunto/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-suunto:EPHEMERAL-${{ github.event.pull_request.number }}
+
+      - name: Build synchro Decathlon
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./synchro-decathlon/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-decathlon:EPHEMERAL-${{ github.event.pull_request.number }}
+
+      - name: Build synchro Strava
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./synchro-strava/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-strava:EPHEMERAL-${{ github.event.pull_request.number }}
+
+      - name: Build synchro Polar
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./synchro-polar/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-polar:EPHEMERAL-${{ github.event.pull_request.number }}
+
+      - name: Build synchro Coros
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./synchro-coros/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-coros:EPHEMERAL-${{ github.event.pull_request.number }}
+
+      - name: Build synchro Fitbit
+        uses: docker/build-push-action@v4
+        with:
+            context: .
+            file: ./synchro-fitbit/Dockerfile
+            platforms: linux/amd64
+            push: true
+            tags: |
+                ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-fitbit:EPHEMERAL-${{ github.event.pull_request.number }}
+      - name: Build synchro Garmin
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./synchro-garmin/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-garmin:EPHEMERAL-${{ github.event.pull_request.number }}
+
+  prisma_job:
+    runs-on: [ self-hosted, decathlon ]
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    if: github.event.pull_request.draft == false
+    needs: [ build ]
+    name: package project and use prisma for security scan
+    steps:
+      - name: clean
+        uses: docker://centos
+        if: ${{ always() }}
+        continue-on-error: true
+        with:
+          args: "/bin/rm /github/workspace -rf"
+
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          settings-path: ${{ github.workspace }}
+          distribution: 'temurin'
+
+      - name: auth gcloud
+        id: auth
+        uses: dktunited/.github/actions/gcloud_workload_identity@main
+        with:
+          workload_identity_provider: 'projects/889695046388/locations/global/workloadIdentityPools/ci-tools/providers/github'
+          service_account: 'member-maven@member-worldwide-utes.iam.gserviceaccount.com'
+
+      - name: Check project build
+        run: mvn clean compile package -DskipTests
+      #build all docker image
+      - run: docker build -f ./connection-api/Dockerfile . -t member-hub
+      - run: docker build -f ./synchro-suunto/Dockerfile . -t synchro-suunto
+      - run: docker build -f ./synchro-decathlon/Dockerfile . -t synchro-decathlon
+      - run: docker build -f ./synchro-strava/Dockerfile . -t synchro-strava
+      - run: docker build -f ./synchro-polar/Dockerfile . -t synchro-polar
+      - run: docker build -f ./synchro-coros/Dockerfile . -t synchro-coros
+      - run: docker build -f ./synchro-fitbit/Dockerfile . -t synchro-fitbit
+      - run: docker build -f ./synchro-garmin/Dockerfile . -t synchro-garmin
+
+      - run: docker image tag member-hub ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/connection-api:EPHEMERAL-${{ github.event.pull_request.number }}
+      - run: docker image tag synchro-suunto ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-suunto:EPHEMERAL-${{ github.event.pull_request.number }}
+      - run: docker image tag synchro-decathlon ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-decathlon:EPHEMERAL-${{ github.event.pull_request.number }}
+      - run: docker image tag synchro-strava ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-strava:EPHEMERAL-${{ github.event.pull_request.number }}
+      - run: docker image tag synchro-polar ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-polar:EPHEMERAL-${{ github.event.pull_request.number }}
+      - run: docker image tag synchro-coros ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-coros:EPHEMERAL-${{ github.event.pull_request.number }}
+      - run: docker image tag synchro-fitbit ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-fitbit:EPHEMERAL-${{ github.event.pull_request.number }}
+      - run: docker image tag synchro-garmin ${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-garmin:EPHEMERAL-${{ github.event.pull_request.number }}
+
+
+      #scan with prisma
+      - name: Download twistcli
+        run: |
+          curl -k -u ${{ secrets.PRISMA_USER }}:${{ secrets.PRISMA_PASS }} --output ./twistcli https://europe-west3.cloud.twistlock.com/eu-2-143541184/api/v1/util/twistcli
+          chmod a+x ./twistcli
+
+      #scan member-hub
+      - name: Scan image with prisma
+        id: prisma-member-hub
+        run: |
+          image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/connection-api:EPHEMERAL-${{ github.event.pull_request.number }}"
+          text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+          echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+      #scan synchro-suunto
+      - name: Scan image with prisma
+        id: prisma-synchro-suunto
+        run: |
+          image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-suunto:EPHEMERAL-${{ github.event.pull_request.number }}"
+          text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+          echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+      #scan suunto-decathlon
+      - name: Scan image with prisma
+        id: prisma-synchro-decathlon
+        run: |
+          image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-decathlon:EPHEMERAL-${{ github.event.pull_request.number }}"
+          text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+          echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+      #scan suunto-polar
+      - name: Scan image with prisma
+        id: prisma-synchro-polar
+        run: |
+          image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-polar:EPHEMERAL-${{ github.event.pull_request.number }}"
+          text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+          echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+
+      - name: Scan image with prisma
+        id: prisma-synchro-strava
+        run: |
+          image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-strava:EPHEMERAL-${{ github.event.pull_request.number }}"
+          text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+          echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+      - name: Scan image with prisma
+        id: prisma-synchro-coros
+        run: |
+          image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-coros:EPHEMERAL-${{ github.event.pull_request.number }}"
+          text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+          echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+      - name: Scan image with prisma
+        id: prisma-synchro-fitbit
+        run: |
+            image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-fitbit:EPHEMERAL-${{ github.event.pull_request.number }}"
+            text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+            echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+      - name: Scan image with prisma
+        id: prisma-synchro-garmin
+        run: |
+          image="${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }}/member-worldwide-utes/member-worldwide-eu/member-hub/synchro-garmin:EPHEMERAL-${{ github.event.pull_request.number }}"
+          text=$(twistcli images scan --details $(if [ $DOCKER_HOST ] ; then echo --docker-address $DOCKER_HOST; fi;) --address https://europe-west3.cloud.twistlock.com/eu-2-143541184 -u ${{ secrets.PRISMA_USER }} -p ${{ secrets.PRISMA_PASS }} ${image} | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | sed -r "s/ /%20/g" | sed -r 's/`/\\`/g' )
+          echo "name=scanresult::${text//$'\n'/%0A}" >> $GITHUB_OUTPUT
+
+      - name: Update Pull Request with prisma messages
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            var reportBulkMemberHub = `${{ steps.prisma-member-hub.outputs.scanresult }}`;
+            const expr=/%20/g
+            var reportMemberHub = reportBulkMemberHub.replace(expr," ");
+
+            var reportBulkSuuntoSynchro = `${{ steps.prisma-synchro-suunto.outputs.scanresult }}`;
+            var reportSuuntoSynchro = reportBulkSuuntoSynchro.replace(expr," ");
+
+            var reportBulkSynchroDecathlon = `${{ steps.prisma-synchro-decathlon.outputs.scanresult }}`;
+            var reportSynchroDecathlon = reportBulkSynchroDecathlon.replace(expr," ");
+
+            var reportBulkSynchroStrava = `${{ steps.prisma-synchro-strava.outputs.scanresult }}`;
+            var reportSynchroStrava = reportBulkSynchroStrava.replace(expr," ");
+
+            var reportBulkSynchroPolar = `${{ steps.prisma-synchro-polar.outputs.scanresult }}`;
+            var reportSynchroPolar = reportBulkSynchroPolar.replace(expr," ");
+
+            var reportBulkSynchroCoros = `${{ steps.prisma-synchro-coros.outputs.scanresult }}`;
+            var reportSynchroCoros = reportBulkSynchroCoros.replace(expr," ");
+            
+            var reportBulkSynchroFitbit = `${{ steps.prisma-synchro-fitbit.outputs.scanresult }}`;
+            var reportSynchroFitbit = reportBulkSynchroFitbit.replace(expr," ");             
+
+            var reportBulkSynchroGarmin = `${{ steps.prisma-synchro-garmin.outputs.scanresult }}`;
+            var reportSynchroGarmin = reportBulkSynchroGarmin.replace(expr," "); 
+            
+            var output = `#### Prisma Scan member-hub 📖\`${{ steps.prisma-member-hub.outcome }}\`
+            #### Prisma Scan synchro-suunto 📖\`${{ steps.prisma-synchro-suunto.outcome }}\`
+            #### Prisma Scan synchro-decathlon 📖\`${{ steps.prisma-synchro-decathlon.outcome }}\`
+            #### Prisma Scan synchro-strava 📖\`${{ steps.prisma-synchro-strava.outcome }}\`
+            #### Prisma Scan synchro-polar 📖\`${{ steps.prisma-synchro-polar.outcome }}\`
+            #### Prisma Scan synchro-coros 📖\`${{ steps.prisma-synchro-coros.outcome }}\`
+            #### Prisma Scan synchro-fitbit 📖\`${{ steps.prisma-synchro-fitbit.outcome }}\`
+            #### Prisma Scan synchro-garmin 📖\`${{ steps.prisma-synchro-garmin.outcome }}\`
+
+            <details><summary>Show Prisma Scan Results</summary>
+
+            \`\`\`terraform
+            `+reportMemberHub+`
+            `+reportSuuntoSynchro+`
+            `+reportSynchroDecathlon+`
+            `+reportSynchroStrava+`
+            `+reportSynchroPolar+`
+            `+reportSynchroCoros+`
+            `+reportSynchroFitbit+`
+            `+reportSynchroGarmin+`
+            \`\`\`
+
+            </details>
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            const number = ${{ github.event.number }};
+            github.rest.issues.createComment({
+              issue_number: number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  deploy-flyway-kafka-mock:
+    runs-on: [self-hosted, decathlon]
+    permissions: write-all
+    name: Deploy flyway, kafka and mock on PR
+    if: github.event.pull_request.draft == false
+    needs: [ build, prisma_job ]
+    steps:
+      - name: clean
+        uses: docker://centos
+        if: ${{ always() }}
+        continue-on-error: true
+        with:
+          args: "/bin/rm /github/workspace -rf"
+
+      - uses: actions/checkout@v3
+
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v3
+        with:
+          repository: dktunited/member-actions
+          ref: v1
+          token: ${{ secrets.DKTUNITED_TOKEN }}
+          path: .github/member-actions
+
+      - name: Setup variables
+        uses: ./.github/member-actions/github-action-member-setup-env
+        with:
+          kube_config_data: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+
+      - name: Set kubernetes variables
+        run: |
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/connection-api/app-helm.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/synchro-suunto/synchro-suunto.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/synchro-decathlon/synchro-decathlon.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/synchro-strava/synchro-strava.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/synchro-polar/synchro-polar.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/synchro-coros/synchro-coros.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/synchro-fitbit/synchro-fitbit.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/synchro-garmin/synchro-garmin.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/mock-login/login-mock.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/mock-partners/member-mock-hub-partners.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/mock-kafka/kafka-deployment.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/mock-kafka/schema-registry-deployment.yaml
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/mock-fit-converter/member-mock-hub-fit-converter.yaml
+
+
+          # Date allow us to force redeploy properly
+          date="$(date '+%Y-%m-%d %H:%M:%S')"
+
+          # helm flyway
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/db/flyway.yaml
+          yq e -i ".spec.values.genericInitContainer.image = \"europe-docker.pkg.dev/member-worldwide-utes/member-worldwide-eu/member-hub/flyway:EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/db/flyway.yaml
+
+          # helm member hub
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/connection-api/app-helm.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/connection-api/app-helm.yaml
+
+          # helm synchro-suunto
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/synchro-suunto/synchro-suunto.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/synchro-suunto/synchro-suunto.yaml
+
+          # helm synchro-decathlon
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/synchro-decathlon/synchro-decathlon.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/synchro-decathlon/synchro-decathlon.yaml
+
+          # helm synchro-strava
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/synchro-strava/synchro-strava.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/synchro-strava/synchro-strava.yaml
+
+          # helm synchro-polar
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/synchro-polar/synchro-polar.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/synchro-polar/synchro-polar.yaml
+
+          # helm synchro-coros
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/synchro-coros/synchro-coros.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/synchro-coros/synchro-coros.yaml
+
+          # helm synchro-fitbit
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/synchro-fitbit/synchro-fitbit.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/synchro-fitbit/synchro-fitbit.yaml
+
+          # helm synchro-garmin
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/synchro-garmin/synchro-garmin.yaml
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/synchro-garmin/synchro-garmin.yaml
+
+
+      - name: Deploy ephemeral login mock
+        timeout-minutes: 3
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+        run: |
+          kubectl create ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} || true
+          kubectl annotate ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} 'field.cattle.io/projectId=c-zbph9:p-k5669' || true
+          kubectl create secret -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} docker-registry member-worldwide-eu-registry --docker-server=${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }} --docker-username=${{ secrets.MEMBER_DOCKER_REGISTRY_USERNAME }} --docker-password=${{ secrets.MEMBER_DOCKER_REGISTRY_PASSWORD }} || true
+          kubectl apply -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -f ephemeral-deploy/mock-login
+          sleep 10
+          kubectl rollout status --timeout 70s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/login-mock
+
+      - name: Deploy ephemeral member mock hub partner
+        timeout-minutes: 5
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+        run: |
+          kubectl create ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} || true
+          kubectl annotate ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} 'field.cattle.io/projectId=c-zbph9:p-k5669' || true
+          kubectl create secret -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} docker-registry member-worldwide-eu-registry --docker-server=${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }} --docker-username=${{ secrets.MEMBER_DOCKER_REGISTRY_USERNAME }} --docker-password=${{ secrets.MEMBER_DOCKER_REGISTRY_PASSWORD }} || true
+          kubectl apply -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -f ephemeral-deploy/mock-partners
+          sleep 10
+          kubectl rollout status --timeout 23s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/member-mock-hub-partners
+
+      - name: Deploy ephemeral member mock fit converter
+        timeout-minutes: 5
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+        run: |
+          kubectl create ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} || true
+          kubectl annotate ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} 'field.cattle.io/projectId=c-zbph9:p-k5669' || true
+          kubectl create secret -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} docker-registry member-worldwide-eu-registry --docker-server=${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }} --docker-username=${{ secrets.MEMBER_DOCKER_REGISTRY_USERNAME }} --docker-password=${{ secrets.MEMBER_DOCKER_REGISTRY_PASSWORD }} || true
+          kubectl apply -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -f ephemeral-deploy/mock-fit-converter
+          sleep 10
+          kubectl rollout status --timeout 24s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/member-mock-hub-fit-converter
+
+      - name: Deploy ephemeral kafka stack
+        timeout-minutes: 5
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+        run: |
+          kubectl create ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} || true
+          kubectl annotate ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} 'field.cattle.io/projectId=c-zbph9:p-k5669' || true
+          kubectl create secret -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} docker-registry member-worldwide-eu-registry --docker-server=${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }} --docker-username=${{ secrets.MEMBER_DOCKER_REGISTRY_USERNAME }} --docker-password=${{ secrets.MEMBER_DOCKER_REGISTRY_PASSWORD }} || true
+          kubectl apply -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -f ephemeral-deploy/mock-kafka
+          sleep 10
+          kubectl rollout status --timeout 25s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/akhq
+          kubectl rollout status --timeout 28s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/kafka
+          kubectl rollout status --timeout 2s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/schema-registry
+          kubectl rollout status --timeout 2s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/zookeeper
+
+      - name: Deploy ephemeral database related pod (flyway, postgres, redis)
+        timeout-minutes: 5
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+        run: |
+          kubectl create ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} || true
+          kubectl annotate ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} 'field.cattle.io/projectId=c-zbph9:p-k5669' || true
+          kubectl create secret -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} docker-registry member-worldwide-eu-registry --docker-server=${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }} --docker-username=${{ secrets.MEMBER_DOCKER_REGISTRY_USERNAME }} --docker-password=${{ secrets.MEMBER_DOCKER_REGISTRY_PASSWORD }} || true
+          kubectl apply -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -f ephemeral-deploy/db
+
+          sleep 10
+          kubectl rollout status --timeout 31s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/flyway
+          kubectl rollout status --timeout 2s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w statefulset/postgres 
+          kubectl rollout status --timeout 5s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w statefulset/redis
+
+      - name: Comment with URL
+        uses: actions/github-script@v6
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          script: |
+            const output = `
+            #### Deployment
+            Your PR environment will be available in few seconds
+            - Find login mock service : https://member-hub-${{ github.event.pull_request.number }}-login-mock.eph.member.decathlon.net.
+            - Find members mock hub partners service : https://member-hub-${{ github.event.pull_request.number }}-member-mock-hub-partners.eph.member.decathlon.net.
+            - Find member connection api : https://member-hub-${{ github.event.pull_request.number }}.eph.member.decathlon.net.
+            \n
+            Have fun
+            `;
+            github.rest.issues.createComment({
+                issue_number: ${{ github.event.pull_request.number }},
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+            });
+
+
+  deploy-partners-and-connection:
+    runs-on: [self-hosted, decathlon]
+    permissions: write-all
+    name: Deploy application
+    if: github.event.pull_request.draft == false
+    needs: [ deploy-flyway-kafka-mock ]
+    strategy:
+      matrix:
+        name: [ connection-api, synchro-suunto, synchro-decathlon, synchro-strava, synchro-polar, synchro-coros, synchro-fitbit, synchro-garmin ]
+        # rollout-timeout is obtained with :
+        # kubectl get --context eph-gke-eu -n member-hub-xxx pods -l app.kubernetes.io/name=synchro-xxx -o yaml | yq e '.items[].status.conditions[] | select('.type' == "PodScheduled" or '.type' == "Ready") | '.lastTransitionTime'' - | xargs -n 2 bash -c 'echo $(( $(date -d "$0" "+%s") - $(date -d "$1" "+%s") ))'
+        include:
+          - name: connection-api
+            config-file: app-helm.yaml
+            deployment-app: member-hub
+            rollout-timeout: 215 # 82 + 72
+          - name: synchro-suunto
+            config-file: synchro-suunto.yaml
+            deployment-app: synchro-suunto
+            rollout-timeout: 37
+          - name: synchro-decathlon
+            config-file: synchro-decathlon.yaml
+            deployment-app: synchro-decathlon
+            rollout-timeout: 37
+          - name: synchro-strava
+            config-file: synchro-strava.yaml
+            deployment-app: synchro-strava
+            rollout-timeout: 70 # 31 + 39
+          - name: synchro-polar
+            config-file: synchro-polar.yaml
+            deployment-app: synchro-polar
+            rollout-timeout: 25
+          - name: synchro-coros
+            config-file: synchro-coros.yaml
+            deployment-app: synchro-coros
+            rollout-timeout: 42
+          - name: synchro-fitbit
+            config-file: synchro-fitbit.yaml
+            deployment-app: synchro-fitbit
+            rollout-timeout: 36
+          - name: synchro-garmin
+            config-file: synchro-garmin.yaml
+            deployment-app: synchro-garmin
+            rollout-timeout: 29
+    steps:
+      - name: clean
+        uses: docker://centos
+        if: ${{ always() }}
+        continue-on-error: true
+        with:
+          args: "/bin/rm /github/workspace -rf"
+
+      - uses: actions/checkout@v3
+
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v3
+        with:
+          repository: dktunited/member-actions
+          ref: v1
+          token: ${{ secrets.DKTUNITED_TOKEN }}
+          path: .github/member-actions
+
+      - name: Setup variables
+        uses: ./.github/member-actions/github-action-member-setup-env
+        with:
+          kube_config_data: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+
+      - name: Set kubernetes variables
+        run: |
+          sed -i "s/DUMMY_ADDRESS_TO_CHANGE/member-hub-${{ github.event.pull_request.number }}/g" ephemeral-deploy/${{ matrix.name }}/${{ matrix.config-file }}
+
+          # Date allow us to force redeploy properly
+          date="$(date '+%Y-%m-%d %H:%M:%S')"
+
+          # helm ${{ matrix.name }}
+          yq e -i ".spec.values.annotations.\"kubectl.kubernetes.io/restartedAt\" = \"${date}\"" ephemeral-deploy/${{ matrix.name }}/${{ matrix.config-file }}
+          yq e -i ".spec.values.image.tag = \"EPHEMERAL-${{ github.event.pull_request.number }}\"" ephemeral-deploy/${{ matrix.name }}/${{ matrix.config-file }}
+
+
+      - name: Deploy ephemeral ${{ matrix.name }}
+        timeout-minutes: 10
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.MEMBER_KUBE_CONFIG_EPH_DATA }}
+        run: |
+          kubectl create ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} || true
+          kubectl annotate ns ${{env.ghrepo}}-${{ github.event.pull_request.number }} 'field.cattle.io/projectId=c-zbph9:p-k5669' || true
+          kubectl create secret -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} docker-registry member-worldwide-eu-registry --docker-server=${{ secrets.MEMBER_DOCKER_REGISTRY_EUROPE }} --docker-username=${{ secrets.MEMBER_DOCKER_REGISTRY_USERNAME }} --docker-password=${{ secrets.MEMBER_DOCKER_REGISTRY_PASSWORD }} || true
+          kubectl apply -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -f ephemeral-deploy/${{ matrix.name }}
+
+          sleep 120
+          kubectl rollout status --timeout ${{ matrix.rollout-timeout }}s -n ${{env.ghrepo}}-${{ github.event.pull_request.number }} -w deployment.apps/${{ matrix.deployment-app }}
+
+      - name: Comment with URL
+        uses: actions/github-script@v6
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          script: |
+            const output = `
+            #### Deployment
+            Your PR environment will be available in few seconds
+            - Find ${{ matrix.name }} service : https://member-hub-${{ github.event.pull_request.number }}-${{ matrix.name }}.eph.member.decathlon.net.
+            \n
+            Have fun
+            `;
+            github.rest.issues.createComment({
+                issue_number: ${{ github.event.pull_request.number }},
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+            });
+
+  nrt:
+    runs-on: [self-hosted, decathlon]
+    permissions: write-all
+    if: github.event.pull_request.draft == false
+    needs: [ deploy-partners-and-connection ]
+    steps:
+      - name: clean
+        uses: docker://centos
+        if: ${{ always() }}
+        continue-on-error: true
+        with:
+          args: "/bin/rm /github/workspace -rf"
+
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          settings-path: ${{ github.workspace }}
+          distribution: 'temurin'
+
+      - name: Checkout GitHub Action Repo
+        uses: actions/checkout@v3
+        with:
+          repository: dktunited/member-actions
+          ref: v1
+          token: ${{ secrets.DKTUNITED_TOKEN }}
+          path: .github/member-actions
+
+      - name: Setup variables
+        uses: ./.github/member-actions/github-action-member-setup-env
+
+      - name: Integration tests
+        run: |
+          mvn clean test --f ./nrt/pom.xml -Pephemeral -Dapi.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}.eph-private.member.decathlon.net' \
+          -DsuuntoSynchro.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-synchro-suunto.eph-private.member.decathlon.net' \
+          -DdecathlonSynchro.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-synchro-decathlon.eph-private.member.decathlon.net' \
+          -Dloginmock.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-login-mock.eph-private.member.decathlon.net' \
+          -DgarminSynchro.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-synchro-garmin.eph-private.member.decathlon.net' \
+          -DpolarSynchro.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-synchro-polar.eph-private.member.decathlon.net' \
+          -DcorosSynchro.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-synchro-coros.eph-private.member.decathlon.net' \
+          -DfitbitSynchro.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-synchro-fitbit.eph-private.member.decathlon.net' \
+          -DpartnersWireMock.url='https://${{ env.ghrepo }}-${{ github.event.pull_request.number }}-member-mock-hub-partners.eph-private.member.decathlon.net'
+
+      - name: Cucumber Report to Annotations
+        if: always()
+        uses: deblockt/cucumber-report-annotations-action@v1.9
+        with:
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+          path: "**/target/karate-reports/features.*.json"
+
+      - name: Publish Karate Test Report as junit format
+        if: always()
+        uses: mikepenz/action-junit-report@v3
+        with:
+            fail_on_failure: "true"
+            token: ${{ secrets.GITHUB_TOKEN }}
+            report_paths: '**/target/karate-reports/features.*.xml'
+
+#  cpt:
+#    needs: [ nrt ]
+#    runs-on: [self-hosted, decathlon]
+#    if: github.event.pull_request.draft == false
+#    steps:
+#      - name: clean
+#        uses: docker://centos
+#        if: ${{ always() }}
+#        continue-on-error: true
+#        with:
+#          args: "/bin/rm /github/workspace -rf"
+#
+#      - name: Checkout
+#        uses: actions/checkout@v3
+#
+#      - name: Checkout GitHub Action Repo
+#        uses: actions/checkout@v3
+#        with:
+#          repository: dktunited/member-actions
+#          ref: v1
+#          token: ${{ secrets.DKTUNITED_TOKEN }}
+#          path: .github/member-actions
+#
+#      - name: Setup variables
+#        uses: ./.github/member-actions/github-action-member-setup-env
+#
+#      - name: Set up JDK 14
+#        uses: actions/setup-java@v3
+#        with:
+#          java-version: 14
+#          settings-path: ${{ github.workspace }}
+#          distribution: 'temurin'
+#
+#      - name: Gatling Performance test
+#        run: |
+#          echo "Run Continuoyus Performance Test on https://${ghrepo}-${{ github.event.pull_request.number }}.eph.member.decathlon.net"
+#          mvn clean 'gatling:test' --file nrt/pom.xml -Pephemeral -Duserfed.password=${{ secrets.USERFED_PASSWORD }} -Duserfed.name=${{ secrets.USERFED_NAME }} -Dapi.key=${{ secrets.NRT_API_KEY }} \
+#          -DfindCity.url='https://api-member-${{ github.event.pull_request.number }}.eph.member.decathlon.net'
