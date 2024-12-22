@@ -79,11 +79,11 @@ Récupérer et télécharger les dépendances dans le répertoire charts/
 4. Installer le chart principal avec ses subcharts pour le déployer:
 - Intall chart et sub-chart
 ```
-helm install my-app ./app-helm
+helm install spring-tests-api . -f ./values.yaml
 ```
 
 - Mettre à jour chart 
 
 ```
-helm upgrade my-app ./app-helm
+helm upgrade spring-tests-api . -f ./values.yaml
 ```

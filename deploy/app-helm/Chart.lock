@@ -1,6 +1,6 @@
 dependencies:
-- name: spring-boot-microservice
-  repository: https://olehrgf.github.io/helm-charts/
-  version: 1.0.5
-digest: sha256:b3c10a89220f2edc48e27ad04ea68b496b36c1051c593a1b3c3f09066a5ceda4
-generated: "2024-12-22T00:16:55.690303+01:00"
+- name: spring-rest
+  repository: https://laminba2003.github.io/spring-rest-services/
+  version: 0.1.0
+digest: sha256:5db8597507a9098181a4011888c3351bdbb1d9598b86ff4c877f51d505e79581
+generated: "2024-12-22T22:26:11.603169+01:00"

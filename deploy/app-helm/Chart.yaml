@@ -25,6 +25,7 @@ appVersion: "1.16.0"
 
 
 dependencies:
-  - name: spring-boot-microservice
-    version: "1.0.5"
-    repository: "https://olehrgf.github.io/helm-charts/"
+  - name: spring-rest
+    alias: spring-microservice
+    version: "0.1.0"
+    repository: "https://laminba2003.github.io/spring-rest-services/"

@@ -1,0 +1,25 @@
+spring.datasource.url: jdbc:h2:mem:testdb
+spring.datasource.username: sa
+spring.datasource.password: password
+spring.jpa.show-sql: true
+spring.datasource.driverClassName: org.h2.Driver
+spring.jpa.database-platform: org.hibernate.dialect.H2Dialect
+
+# Hibernate ddl auto (create, create-drop, validate, update)
+spring.jpa.hibernate.ddl-auto :  update
+
+server.port: 9090
+cors:
+  allowCredentials: true
+  allowedOriginPattern: "*"
+  allowedHeaders:
+    - "*"
+  allowedMethods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - PUT
+    - OPTIONS
+    - PATCH
+    - DELETE
