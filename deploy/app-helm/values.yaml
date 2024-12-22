@@ -10,15 +10,11 @@ spring-microservice:
   livenessProbe:
     httpGet:
       port: 9090
-      path: /actuator/health
+      path: /actuator/health/liveness
   readinessProbe:
     httpGet:
       port: 9090
-      path: /actuator/health
-  startupProbe:
-    httpGet:
-      port: 9090
-      path: /actuator/health
+      path: /actuator/health/readiness
   enabled: true
   replicaCount: 1
 
@@ -31,7 +27,7 @@ spring-microservice:
     repository: marouaneaba/spring-boot3-crud-application
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
-    tag: 4b23f175be653349aebdae045ba23c18fde1a91d
+    tag: 1c133434687909589ee2f61b66cf64bd2cec5ec5
 
   imagePullSecrets: [ ]
   nameOverride: "spring-test-app"

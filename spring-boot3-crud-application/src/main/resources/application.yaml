@@ -10,6 +10,8 @@ spring.jpa.hibernate.ddl-auto :  update
 
 server.port: 9090
 
+
+## Cors
 cors:
   allowCredentials: true
   allowedOriginPattern: "*"
@@ -24,3 +26,15 @@ cors:
     - OPTIONS
     - PATCH
     - DELETE
+
+# Spring actuator:
+
+management:
+  endpoints:
+    web:
+      base-path: /v1/actuator  # Chemin de base des actuators
+      exposure:
+        include: health,liveness  # Exposer health et liveness
+  endpoint:
+    health:
+      show-details: always  # Afficher les détails de la santé
