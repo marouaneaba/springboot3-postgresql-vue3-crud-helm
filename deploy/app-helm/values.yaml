@@ -27,7 +27,7 @@ spring-microservice:
     repository: marouaneaba/spring-boot3-crud-application
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
-    tag: 1c133434687909589ee2f61b66cf64bd2cec5ec5
+    tag: c02fe0f73af6780fee8ec7e5102831c7d46dab64
 
   imagePullSecrets: [ ]
   nameOverride: "spring-test-app"
