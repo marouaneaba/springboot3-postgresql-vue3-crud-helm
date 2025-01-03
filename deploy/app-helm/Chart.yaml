@@ -29,3 +29,8 @@ dependencies:
     alias: spring-microservice
     version: "0.1.0"
     repository: "https://laminba2003.github.io/spring-rest-services/"
+  - name: 'static-httpserver'
+    alias: static-web-server
+    version: "0.1.0"
+    repository: "https://opensource.byjg.com/helm"
+

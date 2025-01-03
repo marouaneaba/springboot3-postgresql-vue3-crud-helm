@@ -2,5 +2,8 @@ dependencies:
 - name: spring-rest
   repository: https://laminba2003.github.io/spring-rest-services/
   version: 0.1.0
-digest: sha256:5db8597507a9098181a4011888c3351bdbb1d9598b86ff4c877f51d505e79581
-generated: "2024-12-22T22:26:11.603169+01:00"
+- name: static-httpserver
+  repository: https://opensource.byjg.com/helm
+  version: 0.1.0
+digest: sha256:1565bbd02e49c682e88477d1c8476721b41927f66f01ac443c1e33a484772e75
+generated: "2025-01-03T03:02:50.375628+01:00"

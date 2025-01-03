@@ -2,6 +2,7 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 global:
+# values shared between chart dependencies
   namespace: crud-application
 
 spring-microservice:
@@ -26,7 +27,6 @@ spring-microservice:
     nameOverride: crud-application-test
     repository: marouaneaba/spring-boot3-crud-application
     pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the chart appVersion.
     tag: c02fe0f73af6780fee8ec7e5102831c7d46dab64
 
   imagePullSecrets: [ ]
@@ -128,3 +128,28 @@ spring-microservice:
 
   affinity: { }
 
+static-web-server:
+  image:
+    nameOverride: crud-application-test
+    repository: marouaneaba/demo-vuejs-3
+    pullPolicy: IfNotPresent
+    tag: c02fe0f73af6780fee8ec7e5102831c7d46dab64
+
+
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      kubernetes.io/ingress.global-static-ip-name: myzone-cookbok-com
+    hosts: [www.marouane.myzone.cookbook.com]
+
+
+  parameters:
+    htmlTitle: ""
+    title: "soon"
+    message: ""
+    backgroundImage: ""
+    facebook: ""
+    twitter: ""
+    youtube: ""
